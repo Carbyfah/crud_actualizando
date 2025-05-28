@@ -1,0 +1,187 @@
+para ver errores en consola situado en docker haz esto
+-----
+docker exec -it dockerApps sh
+-----
+tail -f /var/log/apache2/error.log
+
+lnav /var/log/apache2/error.log
+
+---Lección aprendida
+Cuando implementamos un método genérico guardar() que decide entre INSERT y UPDATE en función de la presencia de un ID, es crucial diferenciar entre un valor realmente ausente (null/0) 
+y una cadena vacía o un valor “falsy”. Si no lo hacemos, terminamos intentando un UPDATE con id = '', provocando errores de asignación en la base de datos 
+y devolviendo respuestas de “éxito” engañosas porque casi siempre evaluamos al array completo como verdadero.
+
+Cómo resolverlo
+
+Normalizar y validar el ID antes de elegir el flujo
+
+	public function guardar()
+	{
+	    $idCol = static::$idTabla ?? 'id';
+	    $idVal = isset($this->$idCol) ? (int)$this->$idCol : 0;
+	    if ($idVal > 0) {
+	        return $this->actualizar();
+	    } else {
+	        return $this->crear();
+	    }
+	}
+
+
+Con esto, una cadena vacía ("") o un valor no numérico pasa a 0 y dispara siempre crear().
+
+Comprobar explícitamente la clave exito en la respuesta
+En lugar de if ($resultado) (que siempre es true para arrays no vacíos), usar:
+
+	if (!empty($resultado['exito']) && $resultado['exito'] === true) {
+	    // verdadero éxito: tomar lastInsertId() y devolverlo
+	} else {
+	    // manejar fallo real: $resultado['mensaje']
+	}
+	
+Así evitamos devolver un “success” cuando realmente hubo un error.
+
+Capturar errores de la BD y exponerlos durante el desarrollo
+
+Asegurarse de que PDO arroje excepciones (ERRMODE_EXCEPTION).
+
+Redirigir temporalmente error_log a stderr para verlas con docker logs.
+
+Documentar este patrón
+
+Condición de flujo: siempre convertir el ID a entero y compararlo con 0.
+
+Validación de éxito: comprobar la clave booleana exito en la respuesta.
+
+Manejo de errores: registrar y propagar el mensaje de la BD en desarrollo.
+
+
+-----------------------------------------------------------------------------------------CREAR RAMAS ----------------------------------------------------
+git init
+
+git add .
+
+git commit -m "first commit"
+
+git remote add origin https://github.com/IngenieriaSoftware2025/parcial1_dgcm.git
+
+git remote set-url origin https://github.com/IngenieriaSoftware2025/parcial1_dgcm.git
+
+git push -u origin master
+
+
+# 1) Crea y cámbiate a la nueva rama (sin espacios)
+git checkout -b crud-incompleto
+
+# 2) Añade todos los cambios pendientes
+git add .
+
+# 3) Haz el commit con tu mensaje
+git commit -m "CRUD con api correcciones ortograficas y formatos de texto y parrafos"
+
+# 4) Sube la rama al remoto y establece el tracking
+git push -u origin crud-incompleto
+
+----------------------------------------------------------------------
+class Categorias extends ActiveRecord
+{
+    // …
+
+    /**
+     * Devuelve todos los atributos de la categoría,
+     * incluyendo relaciones con sufijo “_nombre”.
+     */
+    public function atributosConRelaciones(string $sufijo = '_nombre'): array
+    {
+        // si lo tienes en la clase padre como protected, lo llamas:
+        return parent::attributosConRelaciones($sufijo);
+    }
+
+    // …
+}
+
+-----------------------
+$categoria->atributosConRelaciones();
+
+
+----------------------------------------------------------------------------------------USOS DE LA LIBRERIA DEL CRUD FUNCIONES.JS--------------------------------------------------
+
+Lección Aprendida: Nomenclatura Consistente para CRUD Dinámico
+
+Definir siempre el campo ID explícitamente
+
+Cada entidad debe exponer en su arreglo fields la columna de su clave primaria (p. ej. ['id_prioridad', 'nombre']).
+
+Esa posición cero (fields[0]) se usa como idField para construir URLs (?id_prioridad=…) y para armar el FormData al eliminar.
+
+Clave singular en la respuesta JSON
+
+El controlador debe devolver un objeto bajo la clave exacta: si tu endpoint es buscarPrioridad, la respuesta debe incluir { "prioridad": { … } }.
+
+Esa clave “singularKey” debe coincidir con idField.replace(/^id_/, '').
+
+Endpoints predecibles y consistentes
+
+CONFIG.ROUTES.prioridades.find → …/buscarPrioridad
+
+CONFIG.ROUTES.prioridades.create → …/guardarPrioridad
+
+CONFIG.ROUTES.prioridades.update → …/modificarPrioridad
+
+CONFIG.ROUTES.prioridades.delete → …/eliminarPrioridad
+
+Reglas para el front-end (initCRUD)
+
+entity: plural exacto (p. ej. 'prioridades'), usado para buscar en CONFIG.ROUTES[entity].
+
+fields: primer elemento = nombre real del campo ID (id_prioridad), siguientes = nombres de inputs del formulario.
+
+columns: la columna de datos cuyo data: coincida con cada campo del objeto JSON devuelto.
+
+Validación: que use exactamente los nombres de los campos del formulario.
+
+Cómo evitar errores “undefined” o 404
+
+Si ves en el log ?id_prioridade=…, revisa tu idField: debe ser id_prioridad, no typo.
+
+Si en la consola JavaScript sale item undefined, confirma que la respuesta JSON tiene la clave singular correcta.
+
+Mantén en back-end y front-end el mismo nombre para el parámetro de ID y para la propiedad del objeto.
+
+Reglas de Oro para Integrar Nuevas Entidades:
+
+Modelo (Back-end)
+
+protected static $idTabla = 'id_entidad';
+
+Métodos:
+public function crearEntidad(): array { return $this->guardarSeguro([...], null, 'crear'); }
+public function actualizarEntidad(): array { return $this->guardarSeguro([...], null, 'actualizar'); }
+public function eliminarEntidad(): array { return $this->guardarSeguro([], null, 'eliminar_logico'); }
+public static function obtenerActivas(?string $q=null): array { /* ... WHERE situacion=1 ... */ }
+
+En el controlador: Devuelve JSON con { "entidad": {...} }.
+
+Rutas de API
+
+Acción	URL	   			Método	 	Parámetro						Respuesta JSON
+Listar	/entidades/obtener	GET			?q=							{ "entidades":[…] }
+Crear	      /entidades/guardar	POST			FormData con nombre…				{ "tipo":"success","data":… }
+Buscar	/entidades/buscar	GET			?id_entidad=					{ "entidad":{…} }
+Modificar	/entidades/modificar	POST			FormData con id_entidad, campos		{ "tipo":"success","data":… }
+Eliminar	/entidades/eliminar	POST			FormData con id_entidad			{ "tipo":"success" }
+
+Front-end (initCRUD)
+
+entity = plural sin mayúsculas.
+
+fields = exactos name de inputs, comenzando por el id_*.
+
+columns.data = las mismas propiedades de los objetos JSON.
+
+validate solo se fija en los campos de formulario, no en el ID oculto.
+
+En “editar”, monta la URL con ?${idField}=${id} y extrae el objeto con la clave singularKey.
+
+Conclusión: La clave está en nombres 100% consistentes entre tu base de datos, modelo, controlador, rutas y tu JavaScript. 
+Si sigues estas reglas de nomenclatura, initCRUD funcionará sin sorpresas con cualquier entidad nueva.
+
